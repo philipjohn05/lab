@@ -289,6 +289,13 @@ stages:
               sudo mkdir -p "$DATA_DIR"
               sudo chmod 777 "$DATA_DIR"
 
+              # Debug - confirm API key is being received (masked in logs)
+              if [ -z "$(NVD_API_KEY)" ]; then
+                echo "WARNING: NVD_API_KEY variable is empty - check pipeline variable name"
+              else
+                echo "[OK] NVD_API_KEY is set (length: ${#NVD_API_KEY} chars)"
+              fi
+
               echo "=== Updating NVD CVE database ==="
               echo "Note: First run will take 5-10 minutes to download full database"
 
@@ -296,9 +303,12 @@ stages:
                 --updateonly \
                 --data "$DATA_DIR" \
                 --nvdApiKey "$(NVD_API_KEY)" \
+                --nvdApiDelay 6000 \
                 && echo "[OK] NVD database updated" \
                 || (echo "ERROR: Failed to update NVD database" && exit 1)
             displayName: "Update NVD CVE Database"
+            env:
+              NVD_API_KEY: $(NVD_API_KEY)
 
           # --- Run the CVE scan against the patched JAR ---
           - script: |
@@ -322,10 +332,13 @@ stages:
                 --failOnCVSS 7 \
                 --enableRetired \
                 --nvdApiKey "$(NVD_API_KEY)" \
+                --nvdApiDelay 6000 \
                 --log "$REPORT_DIR/dependency-check.log" \
                 && echo "[OK] Scan complete - no HIGH/CRITICAL CVEs found" \
                 || (echo "[FAIL] CVEs with CVSS score >= 7 detected - check report" && exit 1)
             displayName: "Run OWASP CVE Scan"
+            env:
+              NVD_API_KEY: $(NVD_API_KEY)
 
           # --- Print summary of findings ---
           - script: |
