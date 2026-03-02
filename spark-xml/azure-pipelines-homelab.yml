@@ -222,7 +222,7 @@ stages:
     jobs:
       - job: OWASPScan
         displayName: "OWASP Dependency Check"
-        timeoutInMinutes: 30
+        timeoutInMinutes: 90
 
         steps:
           # --- Download the patched JAR artifact from Build stage ---
@@ -308,7 +308,7 @@ stages:
                 --updateonly \
                 --data "$DATA_DIR" \
                 --nvdApiKey "$(NVD_API_KEY)" \
-                --nvdApiDelay 6000 \
+                --nvdApiDelay 2000 \
                 && echo "[OK] NVD database updated with API key" \
                 || {
                   echo "WARNING: API key update failed - retrying without API key (slower)"
@@ -316,7 +316,7 @@ stages:
                   "$DC_DIR/bin/dependency-check.sh" \
                     --updateonly \
                     --data "$DATA_DIR" \
-                    --nvdApiDelay 10000 \
+                    --nvdApiDelay 6000 \
                     && echo "[OK] NVD database updated without API key" \
                     || (echo "ERROR: Failed to update NVD database both with and without API key" && exit 1)
                 }
@@ -346,7 +346,7 @@ stages:
                 --failOnCVSS 7 \
                 --enableRetired \
                 --nvdApiKey "$(NVD_API_KEY)" \
-                --nvdApiDelay 6000 \
+                --nvdApiDelay 2000 \
                 --log "$REPORT_DIR/dependency-check.log" \
                 && echo "[OK] Scan complete - no HIGH/CRITICAL CVEs found" \
                 || (echo "[FAIL] CVEs with CVSS score >= 7 detected - check report" && exit 1)
