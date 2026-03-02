@@ -272,9 +272,38 @@ stages:
               "$DC_DIR/bin/dependency-check.sh" --version
             displayName: "Install OWASP Dependency Check"
 
+          # --- Cache NVD database (avoids re-downloading on every run) ---
+          - task: Cache@2
+            displayName: "Cache NVD CVE Database"
+            inputs:
+              key: 'owasp-nvd | "$(Agent.OS)"'
+              restoreKeys: |
+                owasp-nvd | "$(Agent.OS)"
+              path: "/opt/dependency-check-data"
+
+          # --- Update NVD CVE database ---
+          - script: |
+              DC_DIR="/opt/dependency-check"
+              DATA_DIR="/opt/dependency-check-data"
+
+              sudo mkdir -p "$DATA_DIR"
+              sudo chmod 777 "$DATA_DIR"
+
+              echo "=== Updating NVD CVE database ==="
+              echo "Note: First run will take 5-10 minutes to download full database"
+
+              "$DC_DIR/bin/dependency-check.sh" \
+                --updateonly \
+                --data "$DATA_DIR" \
+                --nvdApiKey "$(NVD_API_KEY)" \
+                && echo "[OK] NVD database updated" \
+                || (echo "ERROR: Failed to update NVD database" && exit 1)
+            displayName: "Update NVD CVE Database"
+
           # --- Run the CVE scan against the patched JAR ---
           - script: |
               DC_DIR="/opt/dependency-check"
+              DATA_DIR="/opt/dependency-check-data"
               JAR_PATH="$(System.ArtifactsDirectory)/spark-xml-patched/$(PATCHED_JAR_NAME)"
               REPORT_DIR="$(Build.ArtifactStagingDirectory)/cve-report"
 
@@ -286,12 +315,13 @@ stages:
               "$DC_DIR/bin/dependency-check.sh" \
                 --scan "$JAR_PATH" \
                 --out "$REPORT_DIR" \
+                --data "$DATA_DIR" \
                 --format HTML \
                 --format JSON \
                 --project "spark-xml-patched-0.18.0" \
                 --failOnCVSS 7 \
                 --enableRetired \
-                --nvdApiKey "" \
+                --nvdApiKey "$(NVD_API_KEY)" \
                 --log "$REPORT_DIR/dependency-check.log" \
                 && echo "[OK] Scan complete - no HIGH/CRITICAL CVEs found" \
                 || (echo "[FAIL] CVEs with CVSS score >= 7 detected - check report" && exit 1)
