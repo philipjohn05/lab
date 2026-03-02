@@ -213,11 +213,117 @@ stages:
               publishLocation: "Container"
 
   # ============================================================
-  # STAGE 3  Summary
+  # STAGE 3  CVE Vulnerability Scan
+  # ============================================================
+  - stage: CVEScan
+    displayName: "CVE Vulnerability Scan"
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: OWASPScan
+        displayName: "OWASP Dependency Check"
+        timeoutInMinutes: 30
+
+        steps:
+          # --- Download the patched JAR artifact from Build stage ---
+          - task: DownloadBuildArtifacts@1
+            displayName: "Download Patched JAR"
+            inputs:
+              buildType: "current"
+              downloadType: "single"
+              artifactName: "spark-xml-patched"
+              downloadPath: "$(System.ArtifactsDirectory)"
+
+          # --- Install OWASP Dependency Check ---
+          - script: |
+              DC_VERSION="9.2.0"
+              DC_DIR="/opt/dependency-check"
+
+              if [ -f "$DC_DIR/bin/dependency-check.sh" ]; then
+                echo "[OK] OWASP Dependency Check already installed"
+              else
+                echo "Installing OWASP Dependency Check $DC_VERSION..."
+                curl -fL "https://github.com/jeremylong/DependencyCheck/releases/download/v${DC_VERSION}/dependency-check-${DC_VERSION}-release.zip" \
+                  -o /tmp/dependency-check.zip
+                sudo unzip -q /tmp/dependency-check.zip -d /opt/
+                sudo chmod +x "$DC_DIR/bin/dependency-check.sh"
+                rm /tmp/dependency-check.zip
+                echo "[OK] OWASP Dependency Check installed"
+              fi
+              "$DC_DIR/bin/dependency-check.sh" --version
+            displayName: "Install OWASP Dependency Check"
+
+          # --- Run the CVE scan against the patched JAR ---
+          - script: |
+              DC_DIR="/opt/dependency-check"
+              JAR_PATH="$(System.ArtifactsDirectory)/spark-xml-patched/$(PATCHED_JAR_NAME)"
+              REPORT_DIR="$(Build.ArtifactStagingDirectory)/cve-report"
+
+              mkdir -p "$REPORT_DIR"
+
+              echo "=== Scanning: $JAR_PATH ==="
+              echo "=== Report output: $REPORT_DIR ==="
+
+              "$DC_DIR/bin/dependency-check.sh" \
+                --scan "$JAR_PATH" \
+                --out "$REPORT_DIR" \
+                --format HTML \
+                --format JSON \
+                --project "spark-xml-patched-0.18.0" \
+                --failOnCVSS 7 \
+                --enableRetired \
+                --nvdApiKey "$(NVD_API_KEY)" \
+                --log "$REPORT_DIR/dependency-check.log" \
+                && echo "[OK] Scan complete - no HIGH/CRITICAL CVEs found" \
+                || (echo "[FAIL] CVEs with CVSS score >= 7 detected - check report" && exit 1)
+            displayName: "Run OWASP CVE Scan"
+
+          # --- Print summary of findings ---
+          - script: |
+              REPORT_DIR="$(Build.ArtifactStagingDirectory)/cve-report"
+              JSON_REPORT="$REPORT_DIR/dependency-check-report.json"
+
+              if [ -f "$JSON_REPORT" ]; then
+                echo "=== CVE Scan Summary ==="
+                # Count vulnerabilities by severity
+                CRITICAL=$(cat "$JSON_REPORT" | grep -o '"severity":"CRITICAL"' | wc -l)
+                HIGH=$(cat "$JSON_REPORT" | grep -o '"severity":"HIGH"' | wc -l)
+                MEDIUM=$(cat "$JSON_REPORT" | grep -o '"severity":"MEDIUM"' | wc -l)
+                LOW=$(cat "$JSON_REPORT" | grep -o '"severity":"LOW"' | wc -l)
+                echo "  CRITICAL : $CRITICAL"
+                echo "  HIGH     : $HIGH"
+                echo "  MEDIUM   : $MEDIUM"
+                echo "  LOW      : $LOW"
+                echo "========================"
+
+                # Specifically check for woodstox
+                WOODSTOX_VULNS=$(cat "$JSON_REPORT" | grep -i "woodstox" | grep -i "vulnerab" | wc -l)
+                if [ "$WOODSTOX_VULNS" -eq 0 ]; then
+                  echo "[OK] No woodstox vulnerabilities detected"
+                else
+                  echo "[FAIL] woodstox vulnerabilities still detected - review report"
+                fi
+              else
+                echo "JSON report not found - check HTML report manually"
+              fi
+            displayName: "Print Scan Summary"
+            condition: always()
+
+          # --- Publish CVE report as artifact ---
+          - task: PublishBuildArtifacts@1
+            displayName: "Publish CVE Report"
+            condition: always()
+            inputs:
+              PathtoPublish: "$(Build.ArtifactStagingDirectory)/cve-report"
+              ArtifactName: "cve-scan-report"
+              publishLocation: "Container"
+
+  # ============================================================
+  # STAGE 4  Summary
   # ============================================================
   - stage: Summary
     displayName: "Build Summary"
-    dependsOn: Build
+    dependsOn: CVEScan
     condition: succeeded()
     jobs:
       - job: PrintSummary
@@ -225,16 +331,18 @@ stages:
         steps:
           - script: |
               echo "================================================"
-              echo " [OK] Build Complete!"
+              echo " [OK] Build and CVE Scan Complete!"
               echo "================================================"
               echo ""
-              echo " Artifact: spark-xml-patched"
-              echo " File:     $(PATCHED_JAR_NAME)"
+              echo " Artifacts:"
+              echo "   spark-xml-patched  - patched JAR"
+              echo "   cve-scan-report    - OWASP scan report"
               echo ""
               echo " Next steps:"
               echo " 1. Download artifact from pipeline results"
-              echo " 2. Upload to Synapse SparkPool2 workspace packages"
-              echo " 3. Remove old spark-xml_2.12-0.18.0.jar"
-              echo " 4. Restart Spark pool to pick up new JAR"
+              echo " 2. Review cve-scan-report/dependency-check-report.html"
+              echo " 3. Upload to Synapse SparkPool2 workspace packages"
+              echo " 4. Remove old spark-xml_2.12-0.18.0.jar"
+              echo " 5. Restart Spark pool to pick up new JAR"
               echo "================================================"
             displayName: "Next Steps"
