@@ -1,9 +1,9 @@
 # ============================================================
-# Azure DevOps Pipeline — Build Patched spark-xml JAR
+# Azure DevOps Pipeline  Build Patched spark-xml JAR
 # Fixes: woodstox-core CVE (upgraded to 7.1.1)
 # Output: spark-xml_2.12-0.18.0-patched.jar
 # ============================================================
-# HOMELAB VERSION  — self-hosted agent on Talos K8s
+# HOMELAB VERSION   self-hosted agent on Talos K8s
 # To replicate at work: change pool.name to your work pool
 # ============================================================
 
@@ -31,7 +31,7 @@ variables:
 
 stages:
   # ============================================================
-  # STAGE 1 — Preflight Checks
+  # STAGE 1  Preflight Checks
   # ============================================================
   - stage: Preflight
     displayName: "Preflight Checks"
@@ -53,23 +53,23 @@ stages:
               echo ""
               echo "=== Checking Internet Connectivity ==="
               curl -sf --max-time 10 https://repo1.maven.org/maven2 > /dev/null \
-                && echo "✓ repo1.maven.org reachable" \
-                || (echo "✗ ERROR: Cannot reach Maven Central — check agent network/proxy" && exit 1)
+                && echo "[OK] repo1.maven.org reachable" \
+                || (echo "[FAIL] ERROR: Cannot reach Maven Central  check agent network/proxy" && exit 1)
               curl -sf --max-time 10 https://repo.scala-sbt.org > /dev/null \
-                && echo "✓ repo.scala-sbt.org reachable" \
-                || (echo "✗ ERROR: Cannot reach SBT repo — check agent network/proxy" && exit 1)
+                && echo "[OK] repo.scala-sbt.org reachable" \
+                || (echo "[FAIL] ERROR: Cannot reach SBT repo  check agent network/proxy" && exit 1)
             displayName: "Check Java & Network Access"
 
           - script: |
               echo "=== Checking woodstox CVE fix in build.sbt ==="
               grep -n "woodstox" build.sbt \
-                && echo "✓ woodstox override confirmed in build.sbt" \
+                && echo "[OK] woodstox override confirmed in build.sbt" \
                 || (echo "ERROR: woodstox 7.1.1 override missing from build.sbt!" && exit 1)
             displayName: "Verify CVE Fix Present"
             workingDirectory: "$(SPARK_XML_DIR)"
 
   # ============================================================
-  # STAGE 2 — Build
+  # STAGE 2  Build
   # ============================================================
   - stage: Build
     displayName: "Build Patched JAR"
@@ -81,7 +81,7 @@ stages:
 
         steps:
           # --- Cache SBT ivy dependencies ---
-          # Speeds up subsequent runs significantly (~15min → ~2min)
+          # Speeds up subsequent runs significantly (~15min  ~2min)
           - task: Cache@2
             displayName: "Cache SBT ivy2"
             inputs:
@@ -98,16 +98,18 @@ stages:
                 coursier | "$(Agent.OS)"
               path: "$(HOME)/.cache/coursier"
 
-          # --- Install SBT if not already present ---
+          # --- Install SBT via direct binary download (avoids apt GPG key issues) ---
           - script: |
               if command -v sbt &> /dev/null; then
-                echo "✓ SBT already installed: $(sbt --version 2>&1 | head -1)"
+                echo "[OK] SBT already installed: $(sbt --version 2>&1 | head -1)"
               else
-                echo "Installing SBT $(SBT_VERSION)..."
-                echo "deb https://repo.scala-sbt.org/scalasbt/debian all main" | sudo tee /etc/apt/sources.list.d/sbt.list
-                curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x2EE0EA64E40A89B84B2DF73499E82A75642AC823" | sudo apt-key add
-                sudo apt-get update -q
-                sudo apt-get install -q sbt=$(SBT_VERSION)
+                echo "Installing SBT $(SBT_VERSION) via direct download..."
+                curl -fL "https://github.com/sbt/sbt/releases/download/v$(SBT_VERSION)/sbt-$(SBT_VERSION).tgz" \
+                  -o /tmp/sbt.tgz
+                sudo tar xzf /tmp/sbt.tgz -C /usr/local/
+                sudo ln -s /usr/local/sbt/bin/sbt /usr/local/bin/sbt
+                rm /tmp/sbt.tgz
+                echo "[OK] SBT installed"
               fi
               sbt --version
             displayName: "Install / Verify SBT"
@@ -139,13 +141,13 @@ stages:
                 exit 1
               fi
               echo "$WOODSTOX_FILES"
-              echo "✓ woodstox classes confirmed in JAR"
+              echo "[OK] woodstox classes confirmed in JAR"
 
               echo ""
               echo "=== Copying to staging ==="
               cp "$JAR_PATH" "$(Build.ArtifactStagingDirectory)/$(PATCHED_JAR_NAME)"
               ls -lh "$(Build.ArtifactStagingDirectory)/$(PATCHED_JAR_NAME)"
-              echo "✓ Done"
+              echo "[OK] Done"
             displayName: "Verify JAR & Stage Artifact"
             workingDirectory: "$(SPARK_XML_DIR)"
 
@@ -187,7 +189,7 @@ stages:
               publishLocation: "Container"
 
   # ============================================================
-  # STAGE 3 — Summary
+  # STAGE 3  Summary
   # ============================================================
   - stage: Summary
     displayName: "Build Summary"
@@ -199,7 +201,7 @@ stages:
         steps:
           - script: |
               echo "================================================"
-              echo " ✓ Build Complete!"
+              echo " [OK] Build Complete!"
               echo "================================================"
               echo ""
               echo " Artifact: spark-xml-patched"
