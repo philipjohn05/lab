@@ -236,7 +236,7 @@ stages:
 
           # --- Install OWASP Dependency Check ---
           - script: |
-              DC_VERSION="12.1.1"
+              DC_VERSION="12.1.0"
               DC_DIR="/opt/dependency-check"
 
               # Remove old version if installed version doesn't match
@@ -258,7 +258,7 @@ stages:
               echo "[OK] unzip installed"
 
               echo "Installing OWASP Dependency Check $DC_VERSION..."
-              curl -fL "https://github.com/jeremylong/DependencyCheck/releases/download/v${DC_VERSION}/dependency-check-${DC_VERSION}-release.zip" \
+              curl -fL "https://github.com/dependency-check/DependencyCheck/releases/download/v${DC_VERSION}/dependency-check-${DC_VERSION}-release.zip" \
                 -o /tmp/dependency-check.zip
 
               if [ ! -f /tmp/dependency-check.zip ]; then
