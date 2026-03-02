@@ -49,15 +49,20 @@ stages:
 
           - script: |
               echo "=== Checking Java ==="
-              java -version 2>&1 || (echo "ERROR: Java not found!" && exit 1)
+              if ! command -v java &> /dev/null; then
+                echo "WARNING: Java not found on agent - will be installed in Build stage"
+              else
+                java -version 2>&1
+                echo "[OK] Java found"
+              fi
               echo ""
               echo "=== Checking Internet Connectivity ==="
               curl -sf --max-time 10 https://repo1.maven.org/maven2 > /dev/null \
                 && echo "[OK] repo1.maven.org reachable" \
-                || (echo "[FAIL] ERROR: Cannot reach Maven Central  check agent network/proxy" && exit 1)
+                || (echo "[FAIL] ERROR: Cannot reach Maven Central - check agent network/proxy" && exit 1)
               curl -sf --max-time 10 https://repo.scala-sbt.org > /dev/null \
                 && echo "[OK] repo.scala-sbt.org reachable" \
-                || (echo "[FAIL] ERROR: Cannot reach SBT repo  check agent network/proxy" && exit 1)
+                || (echo "[FAIL] ERROR: Cannot reach SBT repo - check agent network/proxy" && exit 1)
             displayName: "Check Java & Network Access"
 
           - script: |
@@ -97,6 +102,25 @@ stages:
               restoreKeys: |
                 coursier | "$(Agent.OS)"
               path: "$(HOME)/.cache/coursier"
+
+          # --- Install Java 11 if not present ---
+          - script: |
+              if command -v java &> /dev/null; then
+                echo "[OK] Java already installed:"
+                java -version 2>&1
+              else
+                echo "Java not found - installing JDK 11..."
+                sudo apt-get update -q
+                sudo apt-get install -y -q openjdk-11-jdk
+                echo "[OK] Java installed:"
+                java -version 2>&1
+              fi
+              echo "JAVA_HOME candidates:"
+              update-java-alternatives -l 2>/dev/null || true
+              export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
+              echo "JAVA_HOME set to: $JAVA_HOME"
+              echo "##vso[task.setvariable variable=JAVA_HOME]$JAVA_HOME"
+            displayName: "Install / Verify Java"
 
           # --- Install SBT via direct binary download (avoids apt GPG key issues) ---
           - script: |
