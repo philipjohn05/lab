@@ -22,7 +22,9 @@ libraryDependencies ++= Seq(
   "org.glassfish.jaxb" % "txw2" % "3.0.2",
   "org.apache.ws.xmlschema" % "xmlschema-core" % "2.3.0",
   "org.scala-lang.modules" %% "scala-collection-compat" % "2.9.0",
+  // ---- Overrides vulnerable transitive woodstox dependency (CVE fix) ----
   "com.fasterxml.woodstox" % "woodstox-core" % "7.1.1",
+  // -----------------------------------------------------------------------
   "org.slf4j" % "slf4j-api" % "1.7.36" % Provided,
   "org.scalatest" %% "scalatest" % "3.2.14" % Test,
   "com.novocode" % "junit-interface" % "0.11" % Test,
@@ -37,7 +39,7 @@ pomExtra :=
   <url>https://github.com/databricks/spark-xml</url>
   <licenses>
     <license>
-      <name>Apache License, Version 2.0</name>
+      <n>Apache License, Version 2.0</n>
       <url>http://www.apache.org/licenses/LICENSE-2.0.html</url>
       <distribution>repo</distribution>
     </license>
@@ -49,11 +51,11 @@ pomExtra :=
   <developers>
     <developer>
       <id>hyukjinkwon</id>
-      <name>Hyukjin Kwon</name>
+      <n>Hyukjin Kwon</n>
     </developer>
     <developer>
       <id>srowen</id>
-      <name>Sean Owen</name>
+      <n>Sean Owen</n>
     </developer>
   </developers>
 
@@ -86,4 +88,14 @@ mimaPreviousArtifacts := Set("com.databricks" %% "spark-xml" % "0.17.0")
 
 mimaBinaryIssueFilters ++= {
   Seq()
+}
+
+// Handle duplicate module-info.class files across JARs during assembly
+assembly / assemblyMergeStrategy := {
+  case "module-info.class"                         => MergeStrategy.discard
+  case "META-INF/versions/9/module-info.class"     => MergeStrategy.discard
+  case PathList("META-INF", xs @ _*)               => MergeStrategy.discard
+  case x                                           =>
+    val oldStrategy = (assembly / assemblyMergeStrategy).value
+    oldStrategy(x)
 }
