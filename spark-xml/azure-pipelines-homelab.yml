@@ -236,39 +236,47 @@ stages:
 
           # --- Install OWASP Dependency Check ---
           - script: |
-              DC_VERSION="9.2.0"
+              DC_VERSION="10.0.4"
               DC_DIR="/opt/dependency-check"
 
+              # Remove old version if installed version doesn't match
               if [ -f "$DC_DIR/bin/dependency-check.sh" ]; then
-                echo "[OK] OWASP Dependency Check already installed"
-              else
-                echo "Installing unzip..."
-                sudo apt-get update -q
-                sudo apt-get install -y -q unzip
-                echo "[OK] unzip installed"
-
-                echo "Installing OWASP Dependency Check $DC_VERSION..."
-                curl -fL "https://github.com/jeremylong/DependencyCheck/releases/download/v${DC_VERSION}/dependency-check-${DC_VERSION}-release.zip" \
-                  -o /tmp/dependency-check.zip
-
-                if [ ! -f /tmp/dependency-check.zip ]; then
-                  echo "ERROR: Download failed"
-                  exit 1
+                INSTALLED_VERSION=$("$DC_DIR/bin/dependency-check.sh" --version 2>&1 | grep -oP '\d+\.\d+\.\d+' | head -1)
+                if [ "$INSTALLED_VERSION" = "$DC_VERSION" ]; then
+                  echo "[OK] OWASP Dependency Check $DC_VERSION already installed"
+                  "$DC_DIR/bin/dependency-check.sh" --version
+                  exit 0
+                else
+                  echo "Upgrading from $INSTALLED_VERSION to $DC_VERSION..."
+                  sudo rm -rf "$DC_DIR"
                 fi
-
-                sudo unzip -q /tmp/dependency-check.zip -d /opt/
-                rm /tmp/dependency-check.zip
-
-                if [ ! -f "$DC_DIR/bin/dependency-check.sh" ]; then
-                  echo "ERROR: dependency-check.sh not found after extraction"
-                  echo "Contents of /opt/dependency-check/bin/:"
-                  ls -la "$DC_DIR/bin/" 2>/dev/null || echo "Directory not found"
-                  exit 1
-                fi
-
-                sudo chmod +x "$DC_DIR/bin/dependency-check.sh"
-                echo "[OK] OWASP Dependency Check installed"
               fi
+
+              echo "Installing unzip..."
+              sudo apt-get update -q
+              sudo apt-get install -y -q unzip
+              echo "[OK] unzip installed"
+
+              echo "Installing OWASP Dependency Check $DC_VERSION..."
+              curl -fL "https://github.com/jeremylong/DependencyCheck/releases/download/v${DC_VERSION}/dependency-check-${DC_VERSION}-release.zip" \
+                -o /tmp/dependency-check.zip
+
+              if [ ! -f /tmp/dependency-check.zip ]; then
+                echo "ERROR: Download failed"
+                exit 1
+              fi
+
+              sudo unzip -q /tmp/dependency-check.zip -d /opt/
+              rm /tmp/dependency-check.zip
+
+              if [ ! -f "$DC_DIR/bin/dependency-check.sh" ]; then
+                echo "ERROR: dependency-check.sh not found after extraction"
+                ls -la "$DC_DIR/bin/" 2>/dev/null || echo "Directory not found"
+                exit 1
+              fi
+
+              sudo chmod +x "$DC_DIR/bin/dependency-check.sh"
+              echo "[OK] OWASP Dependency Check $DC_VERSION installed"
               "$DC_DIR/bin/dependency-check.sh" --version
             displayName: "Install OWASP Dependency Check"
 
@@ -289,23 +297,29 @@ stages:
               sudo mkdir -p "$DATA_DIR"
               sudo chmod 777 "$DATA_DIR"
 
-              # Debug - confirm API key is being received (masked in logs)
               if [ -z "$(NVD_API_KEY)" ]; then
                 echo "WARNING: NVD_API_KEY variable is empty - check pipeline variable name"
               else
                 echo "[OK] NVD_API_KEY is set (length: ${#NVD_API_KEY} chars)"
               fi
 
-              echo "=== Updating NVD CVE database ==="
-              echo "Note: First run will take 5-10 minutes to download full database"
-
+              echo "=== Updating NVD CVE database (with API key) ==="
               "$DC_DIR/bin/dependency-check.sh" \
                 --updateonly \
                 --data "$DATA_DIR" \
                 --nvdApiKey "$(NVD_API_KEY)" \
                 --nvdApiDelay 6000 \
-                && echo "[OK] NVD database updated" \
-                || (echo "ERROR: Failed to update NVD database" && exit 1)
+                && echo "[OK] NVD database updated with API key" \
+                || {
+                  echo "WARNING: API key update failed - retrying without API key (slower)"
+                  echo "NOTE: If this keeps failing, your NVD API key may not be activated yet"
+                  "$DC_DIR/bin/dependency-check.sh" \
+                    --updateonly \
+                    --data "$DATA_DIR" \
+                    --nvdApiDelay 10000 \
+                    && echo "[OK] NVD database updated without API key" \
+                    || (echo "ERROR: Failed to update NVD database both with and without API key" && exit 1)
+                }
             displayName: "Update NVD CVE Database"
             env:
               NVD_API_KEY: $(NVD_API_KEY)
