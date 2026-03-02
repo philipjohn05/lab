@@ -324,6 +324,7 @@ stages:
               fi
 
               echo "=== Updating NVD CVE database (with API key) ==="
+              export JAVA_OPTS="-Xmx2g -Xms512m"
               "$DC_DIR/bin/dependency-check.sh" \
                 --updateonly \
                 --data "$DATA_DIR" \
@@ -357,6 +358,7 @@ stages:
 
               echo "=== Scanning: $JAR_PATH ==="
               echo "=== Report output: $REPORT_DIR ==="
+              export JAVA_OPTS="-Xmx2g -Xms512m"
 
               "$DC_DIR/bin/dependency-check.sh" \
                 --scan "$JAR_PATH" \
