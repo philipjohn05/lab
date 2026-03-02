@@ -222,7 +222,7 @@ stages:
     jobs:
       - job: OWASPScan
         displayName: "OWASP Dependency Check"
-        timeoutInMinutes: 90
+        timeoutInMinutes: 120
 
         steps:
           # --- Download the patched JAR artifact from Build stage ---
