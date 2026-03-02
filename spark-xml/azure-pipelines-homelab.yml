@@ -242,12 +242,31 @@ stages:
               if [ -f "$DC_DIR/bin/dependency-check.sh" ]; then
                 echo "[OK] OWASP Dependency Check already installed"
               else
+                echo "Installing unzip..."
+                sudo apt-get update -q
+                sudo apt-get install -y -q unzip
+                echo "[OK] unzip installed"
+
                 echo "Installing OWASP Dependency Check $DC_VERSION..."
                 curl -fL "https://github.com/jeremylong/DependencyCheck/releases/download/v${DC_VERSION}/dependency-check-${DC_VERSION}-release.zip" \
                   -o /tmp/dependency-check.zip
+
+                if [ ! -f /tmp/dependency-check.zip ]; then
+                  echo "ERROR: Download failed"
+                  exit 1
+                fi
+
                 sudo unzip -q /tmp/dependency-check.zip -d /opt/
-                sudo chmod +x "$DC_DIR/bin/dependency-check.sh"
                 rm /tmp/dependency-check.zip
+
+                if [ ! -f "$DC_DIR/bin/dependency-check.sh" ]; then
+                  echo "ERROR: dependency-check.sh not found after extraction"
+                  echo "Contents of /opt/dependency-check/bin/:"
+                  ls -la "$DC_DIR/bin/" 2>/dev/null || echo "Directory not found"
+                  exit 1
+                fi
+
+                sudo chmod +x "$DC_DIR/bin/dependency-check.sh"
                 echo "[OK] OWASP Dependency Check installed"
               fi
               "$DC_DIR/bin/dependency-check.sh" --version
@@ -272,7 +291,7 @@ stages:
                 --project "spark-xml-patched-0.18.0" \
                 --failOnCVSS 7 \
                 --enableRetired \
-                --nvdApiKey "$(NVD_API_KEY)" \
+                --nvdApiKey "" \
                 --log "$REPORT_DIR/dependency-check.log" \
                 && echo "[OK] Scan complete - no HIGH/CRITICAL CVEs found" \
                 || (echo "[FAIL] CVEs with CVSS score >= 7 detected - check report" && exit 1)
