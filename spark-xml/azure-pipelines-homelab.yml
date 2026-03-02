@@ -236,7 +236,7 @@ stages:
 
           # --- Install OWASP Dependency Check ---
           - script: |
-              DC_VERSION="10.0.4"
+              DC_VERSION="10.0.2"
               DC_DIR="/opt/dependency-check"
 
               # Remove old version if installed version doesn't match
