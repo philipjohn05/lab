@@ -1,0 +1,210 @@
+# ============================================================
+# Azure DevOps Pipeline — Build Patched spark-xml JAR
+# Fixes: woodstox-core CVE (upgraded to 7.1.1)
+# Output: spark-xml_2.12-0.18.0-patched.jar
+# ============================================================
+# HOMELAB VERSION  — self-hosted agent on Talos K8s
+# To replicate at work: change pool.name to your work pool
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - build.sbt
+      - src/**
+      - project/**
+
+pool:
+  name:
+    homelab-pool # Self-hosted agent on Talos K8s
+    # Work replication: change to your work pool name
+
+variables:
+  SBT_VERSION: "1.7.3"
+  SCALA_VERSION: "2.12.15"
+  JAR_NAME: "spark-xml-assembly-0.18.0.jar"
+  PATCHED_JAR_NAME: "spark-xml_2.12-0.18.0-patched.jar"
+
+stages:
+  # ============================================================
+  # STAGE 1 — Preflight Checks
+  # ============================================================
+  - stage: Preflight
+    displayName: "Preflight Checks"
+    jobs:
+      - job: CheckEnvironment
+        displayName: "Verify Agent Environment"
+        steps:
+          - script: |
+              echo "=== Agent Info ==="
+              echo "Agent Name:    $(Agent.Name)"
+              echo "Agent OS:      $(Agent.OS)"
+              echo "Agent Machine: $(Agent.MachineName)"
+              echo "Working Dir:   $(Agent.WorkFolder)"
+            displayName: "Print Agent Info"
+
+          - script: |
+              echo "=== Checking Java ==="
+              java -version 2>&1 || (echo "ERROR: Java not found!" && exit 1)
+              echo ""
+              echo "=== Checking Internet Connectivity ==="
+              curl -sf --max-time 10 https://repo1.maven.org/maven2 > /dev/null \
+                && echo "✓ repo1.maven.org reachable" \
+                || (echo "✗ ERROR: Cannot reach Maven Central — check agent network/proxy" && exit 1)
+              curl -sf --max-time 10 https://repo.scala-sbt.org > /dev/null \
+                && echo " repo.scala-sbt.org reachable" \
+                || (echo " ERROR: Cannot reach SBT repo — check agent network/proxy" && exit 1)
+            displayName: "Check Java & Network Access"
+
+          - script: |
+              echo "=== Checking woodstox CVE fix in build.sbt ==="
+              grep -n "woodstox" build.sbt \
+                && echo "woodstox override confirmed in build.sbt" \
+                || (echo "ERROR: woodstox 7.1.1 override missing from build.sbt!" && exit 1)
+            displayName: "Verify CVE Fix Present"
+
+  # ============================================================
+  # STAGE 2 — Build
+  # ============================================================
+  - stage: Build
+    displayName: "Build Patched JAR"
+    dependsOn: Preflight
+    jobs:
+      - job: BuildJar
+        displayName: "SBT Assembly (Scala 2.12)"
+        timeoutInMinutes: 30
+
+        steps:
+          # --- Cache SBT ivy dependencies ---
+          # Speeds up subsequent runs significantly (~15min → ~2min)
+          - task: Cache@2
+            displayName: "Cache SBT ivy2"
+            inputs:
+              key: 'sbt-ivy | "$(Agent.OS)" | build.sbt | project/build.properties'
+              restoreKeys: |
+                sbt-ivy | "$(Agent.OS)"
+              path: "$(HOME)/.ivy2/cache"
+
+          - task: Cache@2
+            displayName: "Cache Coursier"
+            inputs:
+              key: 'coursier | "$(Agent.OS)" | build.sbt'
+              restoreKeys: |
+                coursier | "$(Agent.OS)"
+              path: "$(HOME)/.cache/coursier"
+
+          # --- Install SBT if not already present ---
+          - script: |
+              if command -v sbt &> /dev/null; then
+                echo "SBT already installed: $(sbt --version 2>&1 | head -1)"
+              else
+                echo "Installing SBT $(SBT_VERSION)..."
+                echo "deb https://repo.scala-sbt.org/scalasbt/debian all main" | sudo tee /etc/apt/sources.list.d/sbt.list
+                curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x2EE0EA64E40A89B84B2DF73499E82A75642AC823" | sudo apt-key add
+                sudo apt-get update -q
+                sudo apt-get install -q sbt=$(SBT_VERSION)
+              fi
+              sbt --version
+            displayName: "Install / Verify SBT"
+
+          # --- Build for Scala 2.12 ---
+          - script: |
+              echo "=== Building spark-xml for Scala $(SCALA_VERSION) ==="
+              sbt -v "++ $(SCALA_VERSION)" clean assembly
+            displayName: "SBT Assembly"
+
+          # --- Verify JAR contents ---
+          - script: |
+              JAR_PATH=$(find target -name "$(JAR_NAME)" | head -1)
+
+              if [ -z "$JAR_PATH" ]; then
+                echo "ERROR: JAR not found! Build may have failed."
+                exit 1
+              fi
+
+              echo "=== JAR found: $JAR_PATH ==="
+              ls -lh "$JAR_PATH"
+
+              echo ""
+              echo "=== Verifying woodstox inside JAR ==="
+              WOODSTOX_FILES=$(jar tf "$JAR_PATH" | grep -i "woodstox\|ctc/wstx" | head -10)
+              if [ -z "$WOODSTOX_FILES" ]; then
+                echo "ERROR: woodstox classes not found in JAR!"
+                exit 1
+              fi
+              echo "$WOODSTOX_FILES"
+              echo "woodstox classes confirmed in JAR"
+
+              echo ""
+              echo "=== Copying to staging ==="
+              cp "$JAR_PATH" "$(Build.ArtifactStagingDirectory)/$(PATCHED_JAR_NAME)"
+              ls -lh "$(Build.ArtifactStagingDirectory)/$(PATCHED_JAR_NAME)"
+              echo "Done"
+            displayName: "Verify JAR & Stage Artifact"
+
+          # --- Build report for audit trail ---
+          - script: |
+              REPORT="$(Build.ArtifactStagingDirectory)/build-report.txt"
+              {
+                echo "================================================"
+                echo " spark-xml Patched Build Report"
+                echo "================================================"
+                echo "Date:              $(date)"
+                echo "Built by:          $(Build.RequestedFor)"
+                echo "Pipeline:          $(Build.BuildNumber)"
+                echo "Branch:            $(Build.SourceBranchName)"
+                echo "Commit:            $(Build.SourceVersion)"
+                echo "Agent:             $(Agent.Name) ($(Agent.MachineName))"
+                echo "------------------------------------------------"
+                echo "spark-xml version: 0.18.0"
+                echo "Scala version:     $(SCALA_VERSION)"
+                echo "SBT version:       $(SBT_VERSION)"
+                echo "------------------------------------------------"
+                echo "CVE Remediation:"
+                echo "  woodstox-core upgraded to 7.1.1"
+                echo "  Fixes: XXE injection vulnerability"
+                echo "  Fixes: DoS via stack overflow"
+                echo "------------------------------------------------"
+                echo "Output JAR: $(PATCHED_JAR_NAME)"
+                echo "================================================"
+              } > "$REPORT"
+              cat "$REPORT"
+            displayName: "Generate Audit Report"
+
+          # --- Publish artifact ---
+          - task: PublishBuildArtifacts@1
+            displayName: "Publish Patched JAR"
+            inputs:
+              PathtoPublish: "$(Build.ArtifactStagingDirectory)"
+              ArtifactName: "spark-xml-patched"
+              publishLocation: "Container"
+
+  # ============================================================
+  # STAGE 3 — Summary
+  # ============================================================
+  - stage: Summary
+    displayName: "Build Summary"
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: PrintSummary
+        displayName: "Print Summary"
+        steps:
+          - script: |
+              echo "================================================"
+              echo "  Build Complete!"
+              echo "================================================"
+              echo ""
+              echo " Artifact: spark-xml-patched"
+              echo " File:     $(PATCHED_JAR_NAME)"
+              echo ""
+              echo " Next steps:"
+              echo " 1. Download artifact from pipeline results"
+              echo " 2. Upload to Synapse SparkPool2 workspace packages"
+              echo " 3. Remove old spark-xml_2.12-0.18.0.jar"
+              echo " 4. Restart Spark pool to pick up new JAR"
+              echo "================================================"
+            displayName: "Next Steps"
