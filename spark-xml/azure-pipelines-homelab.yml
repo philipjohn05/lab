@@ -93,7 +93,7 @@ stages:
               key: 'sbt-ivy | "$(Agent.OS)" | $(SPARK_XML_DIR)/build.sbt | $(SPARK_XML_DIR)/project/build.properties'
               restoreKeys: |
                 sbt-ivy | "$(Agent.OS)"
-              path: "$(HOME)/.ivy2/cache"
+              path: "$(HOME)/.sbt"
 
           - task: Cache@2
             displayName: "Cache Coursier"
