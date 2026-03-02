@@ -289,13 +289,33 @@ stages:
                 owasp-nvd | "$(Agent.OS)"
               path: "/opt/dependency-check-data"
 
-          # --- Update NVD CVE database ---
+          # --- Purge incompatible NVD database if version changed ---
           - script: |
               DC_DIR="/opt/dependency-check"
               DATA_DIR="/opt/dependency-check-data"
 
+              if [ -f "$DC_DIR/bin/dependency-check.sh" ]; then
+                echo "=== Purging existing NVD database (incompatible with new version) ==="
+                "$DC_DIR/bin/dependency-check.sh" \
+                  --purge \
+                  --data "$DATA_DIR" \
+                  && echo "[OK] Database purged" \
+                  || echo "WARNING: Purge failed or nothing to purge - continuing"
+              else
+                echo "[INFO] No existing installation to purge"
+              fi
+
+              # Also nuke the data dir directly to be safe
+              sudo rm -rf "$DATA_DIR"
               sudo mkdir -p "$DATA_DIR"
               sudo chmod 777 "$DATA_DIR"
+              echo "[OK] Data directory cleared"
+            displayName: "Purge NVD Database Cache"
+
+          # --- Update NVD CVE database ---
+          - script: |
+              DC_DIR="/opt/dependency-check"
+              DATA_DIR="/opt/dependency-check-data"
 
               if [ -z "$(NVD_API_KEY)" ]; then
                 echo "WARNING: NVD_API_KEY variable is empty - check pipeline variable name"
