@@ -39,8 +39,10 @@ stages:
       - job: CheckEnvironment
         displayName: "Verify Agent Environment"
         steps:
+          - checkout: self
+            displayName: "Checkout Repository"
+
           - script: |
-              echo "=== Agent Info ==="
               echo "Agent Name:    $(Agent.Name)"
               echo "Agent OS:      $(Agent.OS)"
               echo "Agent Machine: $(Agent.MachineName)"
@@ -284,15 +286,15 @@ stages:
           - task: Cache@2
             displayName: "Cache NVD CVE Database"
             inputs:
-              key: 'owasp-nvd | "$(Agent.OS)"'
+              key: 'owasp-nvd-v2 | "$(Agent.OS)"'
               restoreKeys: |
-                owasp-nvd | "$(Agent.OS)"
-              path: "/opt/dependency-check-data"
+                owasp-nvd-v2 | "$(Agent.OS)"
+              path: "$(Agent.WorkFolder)/dependency-check-data"
 
           # --- Purge incompatible NVD database if version changed ---
           - script: |
               DC_DIR="/opt/dependency-check"
-              DATA_DIR="/opt/dependency-check-data"
+              DATA_DIR="$(Agent.WorkFolder)/dependency-check-data"
 
               if [ -f "$DC_DIR/bin/dependency-check.sh" ]; then
                 echo "=== Purging existing NVD database (incompatible with new version) ==="
@@ -315,7 +317,7 @@ stages:
           # --- Update NVD CVE database ---
           - script: |
               DC_DIR="/opt/dependency-check"
-              DATA_DIR="/opt/dependency-check-data"
+              DATA_DIR="$(Agent.WorkFolder)/dependency-check-data"
 
               if [ -z "$(NVD_API_KEY)" ]; then
                 echo "WARNING: NVD_API_KEY variable is empty - check pipeline variable name"
@@ -350,7 +352,7 @@ stages:
           # --- Run the CVE scan against the patched JAR ---
           - script: |
               DC_DIR="/opt/dependency-check"
-              DATA_DIR="/opt/dependency-check-data"
+              DATA_DIR="$(Agent.WorkFolder)/dependency-check-data"
               JAR_PATH="$(System.ArtifactsDirectory)/spark-xml-patched/$(PATCHED_JAR_NAME)"
               REPORT_DIR="$(Build.ArtifactStagingDirectory)/cve-report"
 
